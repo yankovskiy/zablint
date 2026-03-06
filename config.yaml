@@ -1,0 +1,12 @@
+# Проверка частоты discovery rules
+discovery_interval:
+  enabled: true
+  min_interval_seconds: 1800  # минимально допустимый интервал в секундах (например, 600 = 10m)
+
+# Проверка макросов объявленных в шаблоне, но нигде не используемых
+unused_macros:
+  enabled: true
+
+# Проверка макросов используемых в шаблоне, но не объявленных (битые макросы)
+undefined_macros:
+  enabled: true

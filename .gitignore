@@ -1,0 +1,3 @@
+.vscode/
+templates/*.yaml
+venv/
