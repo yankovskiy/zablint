@@ -10,3 +10,7 @@ unused_macros:
 # Проверка макросов используемых в шаблоне, но не объявленных (битые макросы)
 undefined_macros:
   enabled: true
+
+# Проверка триггеров, использующих функцию nodata()
+nodata_triggers:
+  enabled: true

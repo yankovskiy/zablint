@@ -10,6 +10,7 @@ import yaml
 
 _USER_MACRO_RE = re.compile(r'\{\$[A-Z0-9_.]+\}')
 _INTERVAL_RE = re.compile(r'^(\d+)([smhdw]?)$')
+_NODATA_RE = re.compile(r'\bnodata\s*\(')
 
 _SUFFIX_SECONDS = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400, 'w': 604800}
 
@@ -122,6 +123,33 @@ def analyze_template(template: dict, config: dict) -> list:
                                 f'[UNDEFINED_MACRO]  {macro} используется в {obj_type} "{obj_name}",'
                                 f' но не объявлен в шаблоне'
                             )
+
+    # Триггеры с nodata()
+    nodata_cfg = config.get('nodata_triggers') or {}
+    if nodata_cfg.get('enabled', False):
+        # Триггеры на верхнем уровне шаблона
+        top_triggers = template.get('triggers', []) or []
+        # Триггеры, вложенные в items
+        item_triggers = []
+        for item in template.get('items', []) or []:
+            item_triggers.extend(item.get('triggers', []) or [])
+        # Прототипы триггеров из discovery_rules -> item_prototypes -> trigger_prototypes
+        proto_triggers = []
+        for rule in template.get('discovery_rules', []) or []:
+            for proto in rule.get('item_prototypes', []) or []:
+                proto_triggers.extend(proto.get('trigger_prototypes', []) or [])
+        for trigger in top_triggers + item_triggers:
+            expr = trigger.get('expression', '') or ''
+            if _NODATA_RE.search(expr):
+                violations.append(
+                    f'[NODATA_TRIGGER]   Триггер "{trigger.get("name", "?")}" использует nodata(): {expr}'
+                )
+        for trigger in proto_triggers:
+            expr = trigger.get('expression', '') or ''
+            if _NODATA_RE.search(expr):
+                violations.append(
+                    f'[NODATA_TRIGGER]   Прототип триггера "{trigger.get("name", "?")}" использует nodata(): {expr}'
+                )
 
     # Частый дискаверинг
     discovery_cfg = config.get('discovery_interval') or {}
