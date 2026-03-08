@@ -8,14 +8,19 @@ from pathlib import Path
 
 import yaml
 
+# Совпадает с пользовательскими макросами Zabbix вида {$MACRO}, {$MACRO.CONTEXT}
 _USER_MACRO_RE = re.compile(r'\{\$[A-Z0-9_.]+\}')
+# Совпадает с числовыми интервалами вида "300", "5m", "1h" (группа 1 — число, группа 2 — суффикс)
 _INTERVAL_RE = re.compile(r'^(\d+)([smhdw]?)$')
+# Совпадает с вызовом функции nodata() в выражении триггера
 _NODATA_RE = re.compile(r'\bnodata\s*\(')
 
+# Коэффициенты перевода суффиксов интервалов в секунды
 _SUFFIX_SECONDS = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400, 'w': 604800}
 
 
 def load_config(script_dir: Path) -> dict:
+    """Загружает конфигурацию линтера из config.yaml."""
     config_path = script_dir / 'config.yaml'
     if not config_path.exists():
         print(f'Ошибка: файл конфигурации не найден: {config_path}', file=sys.stderr)
@@ -38,9 +43,17 @@ def load_templates(templates_dir: Path) -> list:
 
 
 def parse_interval(value: str):
-    """
-    Конвертирует строку интервала в секунды.
-    Возвращает (seconds, None) при успехе или (None, error_message) при ошибке.
+    """Конвертирует строку интервала Zabbix в количество секунд.
+
+    Допустимые форматы: целое число (``300``) или число с суффиксом
+    ``s`` / ``m`` / ``h`` / ``d`` / ``w``. Число без суффикса трактуется
+    как секунды.
+
+    :param value: Строка интервала, например ``"5m"``, ``"1h"``, ``"300"``.
+    :type value: str
+    :returns: Кортеж ``(seconds, None)`` при успешном разборе или
+        ``(None, error_message)`` если формат не распознан.
+    :rtype: tuple[int | None, str | None]
     """
     value = str(value).strip()
     m = _INTERVAL_RE.match(value)
@@ -76,7 +89,19 @@ def find_macros_in_strings(strings):
 
 
 def analyze_template(template: dict, config: dict) -> list:
-    """Анализирует один шаблон и возвращает список нарушений."""
+    """Анализирует один шаблон Zabbix и возвращает список найденных нарушений.
+
+    Выполняет последовательно все включённые в конфиге проверки:
+    ``[UNUSED_MACRO]``, ``[UNDEFINED_MACRO]``, ``[NODATA_TRIGGER]``,
+    ``[FAST_DISCOVERY]``, ``[INVALID_INTERVAL]``.
+
+    :param template: Словарь одного шаблона из блока ``zabbix_export.templates``.
+    :type template: dict
+    :param config: Конфигурация линтера, загруженная из ``config.yaml``.
+    :type config: dict
+    :returns: Список строк-нарушений. Пустой список означает отсутствие нарушений.
+    :rtype: list[str]
+    """
     violations = []
 
     # Объявленные макросы
