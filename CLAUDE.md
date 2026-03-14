@@ -10,8 +10,12 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # Запуск линтера
-python zablint.py
+python zablint.py                          # templates/ по умолчанию
+python zablint.py --dir /path/to/templates # другая директория
+python zablint.py --file template.yaml     # один файл
 ```
+
+Параметры `--dir` и `--file` взаимоисключающие.
 
 Линтер завершается с кодом `0` если нарушений нет, `1` если найдены нарушения, `2` при ошибке конфигурации.
 
@@ -20,10 +24,11 @@ python zablint.py
 Весь код — единственный файл `zablint.py`. Точка входа: `main()`.
 
 **Поток данных:**
-1. `load_config()` читает `config.yaml` — управляет включением/отключением каждой проверки
-2. `load_templates()` загружает все `*.yaml` из `templates/`
-3. Для каждого шаблона вызывается `analyze_template(template, config)` — возвращает `list[Violation]`
-4. Результаты выводятся в stdout
+1. `parse_args()` разбирает CLI-аргументы (`--dir` / `--file`)
+2. `load_config()` читает `config.yaml` — управляет включением/отключением каждой проверки
+3. `load_templates()` загружает все `*.yaml` из директории или `load_template_file()` — один файл
+4. Для каждого шаблона вызывается `analyze_template(template, config)` — возвращает `list[Violation]`
+5. Результаты выводятся в stdout
 
 **Проверки в `analyze_template()`** (выполняются последовательно):
 - `[UNUSED_MACRO]` — макрос объявлен в `template.macros`, но не встречается нигде в шаблоне

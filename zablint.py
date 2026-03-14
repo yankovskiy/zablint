@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """zablint — статический анализатор Zabbix-шаблонов."""
 
+import argparse
 import re
 import sys
 from dataclasses import dataclass
@@ -259,16 +260,46 @@ def analyze_template(template: dict, config: dict) -> list:
     return violations
 
 
+def load_template_file(path: Path) -> list:
+    """Загружает один файл шаблона. Возвращает [(filename, data)] или []."""
+    try:
+        with path.open(encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        return [(path.name, data)]
+    except yaml.YAMLError as e:
+        print(f'Предупреждение: не удалось разобрать {path.name}: {e}', file=sys.stderr)
+        return []
+
+
+def parse_args() -> argparse.Namespace:
+    """Разбирает аргументы командной строки."""
+    parser = argparse.ArgumentParser(description='zablint — статический анализатор Zabbix-шаблонов')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--dir', default='templates', help='Директория с шаблонами (по умолчанию: templates)')
+    group.add_argument('--file', help='Путь к конкретному файлу шаблона')
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     script_dir = Path(__file__).parent
     config = load_config(script_dir)
 
-    templates_dir = script_dir / 'templates'
-    if not templates_dir.is_dir():
-        print(f'Ошибка: директория templates не найдена: {templates_dir}', file=sys.stderr)
-        sys.exit(2)
+    if args.file:
+        file_path = Path(args.file)
+        if not file_path.is_file():
+            print(f'Ошибка: файл не найден: {file_path}', file=sys.stderr)
+            sys.exit(2)
+        template_files = load_template_file(file_path)
+    else:
+        templates_dir = Path(args.dir)
+        if not templates_dir.is_absolute():
+            templates_dir = script_dir / templates_dir
+        if not templates_dir.is_dir():
+            print(f'Ошибка: директория не найдена: {templates_dir}', file=sys.stderr)
+            sys.exit(2)
+        template_files = load_templates(templates_dir)
 
-    template_files = load_templates(templates_dir)
     if not template_files:
         print('Нет шаблонов для проверки.', file=sys.stderr)
         sys.exit(2)
