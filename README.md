@@ -23,6 +23,7 @@ python zablint.py
 |----------|----------|
 | `--dir DIR` | Директория с шаблонами (по умолчанию: `templates`) |
 | `--file FILE` | Путь к конкретному файлу шаблона |
+| `--format FORMAT` | Формат вывода: `text` (по умолчанию) или `json` |
 
 Параметры `--dir` и `--file` взаимоисключающие — можно указать только один из них.
 
@@ -35,6 +36,9 @@ python zablint.py --dir /path/to/templates
 
 # Проверить один файл
 python zablint.py --file /path/to/template.yaml
+
+# Вывод в JSON для CI
+python zablint.py --format json
 ```
 
 ### Коды завершения
@@ -61,6 +65,36 @@ python zablint.py --file /path/to/template.yaml
 ```
 
 Нарушения внутри каждого шаблона выводятся в порядке убывания важности: `critical` → `warning` → `info`.
+
+### Пример вывода в формате JSON
+
+```bash
+python zablint.py --format json
+```
+
+```json
+[
+  {
+    "template": "Template OS Linux",
+    "file": "template_os_linux.yaml",
+    "violations": [
+      {
+        "code": "UNDEFINED_MACRO",
+        "severity": "critical",
+        "message": "{$MEMORY_WARN} используется в item \"Memory usage\", но не объявлен в шаблоне",
+        "context": "item/Memory usage"
+      }
+    ]
+  },
+  {
+    "template": "Template Net SNMP",
+    "file": "template_net_snmp.yaml",
+    "violations": []
+  }
+]
+```
+
+Если нарушений нет — поле `violations` содержит пустой массив. Коды завершения те же.
 
 ## Конфигурация
 

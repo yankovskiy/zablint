@@ -13,9 +13,10 @@ pip install -r requirements.txt
 python zablint.py                          # templates/ по умолчанию
 python zablint.py --dir /path/to/templates # другая директория
 python zablint.py --file template.yaml     # один файл
+python zablint.py --format json            # JSON-вывод для CI
 ```
 
-Параметры `--dir` и `--file` взаимоисключающие.
+Параметры `--dir` и `--file` взаимоисключающие. `--format` принимает `text` (по умолчанию) или `json`.
 
 Линтер завершается с кодом `0` если нарушений нет, `1` если найдены нарушения, `2` при ошибке конфигурации.
 
@@ -24,7 +25,7 @@ python zablint.py --file template.yaml     # один файл
 Весь код — единственный файл `zablint.py`. Точка входа: `main()`.
 
 **Поток данных:**
-1. `parse_args()` разбирает CLI-аргументы (`--dir` / `--file`)
+1. `parse_args()` разбирает CLI-аргументы (`--dir` / `--file` / `--format`)
 2. `load_config()` читает `config.yaml` — управляет включением/отключением каждой проверки
 3. `load_templates()` загружает все `*.yaml` из директории или `load_template_file()` — один файл
 4. Для каждого шаблона вызывается `analyze_template(template, config)` — возвращает `list[Violation]`
