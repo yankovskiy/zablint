@@ -4,9 +4,18 @@
 
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+
+@dataclass
+class Violation:
+    code: str       # FAST_DISCOVERY, UNUSED_MACRO, ...
+    severity: str   # critical / warning / info
+    message: str
+    context: str    # имя правила/итема/триггера
 
 # Совпадает с пользовательскими макросами Zabbix вида {$MACRO}, {$MACRO.CONTEXT}
 _USER_MACRO_RE = re.compile(r'\{\$[A-Z0-9_.]+\}')
@@ -19,6 +28,9 @@ _NODATA_RE = re.compile(r'\bnodata\s*\(')
 _SUFFIX_SECONDS = {'s': 1, 'm': 60, 'h': 3600, 'd': 86400, 'w': 604800}
 
 
+_CHECKS_REQUIRING_SEVERITY = ('unused_macros', 'undefined_macros', 'nodata_triggers', 'discovery_interval')
+
+
 def load_config(script_dir: Path) -> dict:
     """Загружает конфигурацию линтера из config.yaml."""
     config_path = script_dir / 'config.yaml'
@@ -26,7 +38,18 @@ def load_config(script_dir: Path) -> dict:
         print(f'Ошибка: файл конфигурации не найден: {config_path}', file=sys.stderr)
         sys.exit(2)
     with config_path.open(encoding='utf-8') as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    errors = []
+    for key in _CHECKS_REQUIRING_SEVERITY:
+        cfg = config.get(key) or {}
+        if cfg.get('enabled', False) and 'severity' not in cfg:
+            errors.append(f'  {key}: отсутствует обязательное поле "severity" (допустимые значения: critical, warning, info)')
+    if errors:
+        print('Ошибка конфигурации:', file=sys.stderr)
+        for e in errors:
+            print(e, file=sys.stderr)
+        sys.exit(2)
+    return config
 
 
 def load_templates(templates_dir: Path) -> list:
@@ -99,18 +122,20 @@ def analyze_template(template: dict, config: dict) -> list:
     :type template: dict
     :param config: Конфигурация линтера, загруженная из ``config.yaml``.
     :type config: dict
-    :returns: Список строк-нарушений. Пустой список означает отсутствие нарушений.
-    :rtype: list[str]
+    :returns: Список нарушений. Пустой список означает отсутствие нарушений.
+    :rtype: list[Violation]
     """
-    violations = []
+    violations: list[Violation] = []
 
     # Объявленные макросы
     declared_macros = {}
     for m in template.get('macros', []) or []:
         declared_macros[m['macro']] = str(m.get('value', ''))
 
-    undefined_enabled = (config.get('undefined_macros') or {}).get('enabled', False)
-    unused_enabled = (config.get('unused_macros') or {}).get('enabled', False)
+    undefined_cfg = config.get('undefined_macros') or {}
+    unused_cfg = config.get('unused_macros') or {}
+    undefined_enabled = undefined_cfg.get('enabled', False)
+    unused_enabled = unused_cfg.get('enabled', False)
 
     # Все строки шаблона вне блока macros
     strings_outside_macros = collect_strings(template, skip_macros_block=True)
@@ -118,14 +143,19 @@ def analyze_template(template: dict, config: dict) -> list:
 
     # Неиспользуемые макросы
     if unused_enabled:
+        _sev = unused_cfg['severity']
         for macro_name in declared_macros:
             if macro_name not in used_macros:
-                violations.append(
-                    f'[UNUSED_MACRO]     Макрос объявлен, но не используется: {macro_name}'
-                )
+                violations.append(Violation(
+                    code='UNUSED_MACRO',
+                    severity=_sev,
+                    message=f'Макрос объявлен, но не используется: {macro_name}',
+                    context=macro_name,
+                ))
 
     # Битые макросы (с контекстом)
     if undefined_enabled:
+        _sev = undefined_cfg['severity']
         named_sections = [
             ('item', template.get('items', []) or []),
             ('discovery_rule', template.get('discovery_rules', []) or []),
@@ -144,14 +174,17 @@ def analyze_template(template: dict, config: dict) -> list:
                         key = (macro, obj_type, obj_name)
                         if key not in reported:
                             reported.add(key)
-                            violations.append(
-                                f'[UNDEFINED_MACRO]  {macro} используется в {obj_type} "{obj_name}",'
-                                f' но не объявлен в шаблоне'
-                            )
+                            violations.append(Violation(
+                                code='UNDEFINED_MACRO',
+                                severity=_sev,
+                                message=f'{macro} используется в {obj_type} "{obj_name}", но не объявлен в шаблоне',
+                                context=f'{obj_type}/{obj_name}',
+                            ))
 
     # Триггеры с nodata()
     nodata_cfg = config.get('nodata_triggers') or {}
     if nodata_cfg.get('enabled', False):
+        _sev = nodata_cfg['severity']
         # Триггеры на верхнем уровне шаблона
         top_triggers = template.get('triggers', []) or []
         # Триггеры, вложенные в items
@@ -166,20 +199,29 @@ def analyze_template(template: dict, config: dict) -> list:
         for trigger in top_triggers + item_triggers:
             expr = trigger.get('expression', '') or ''
             if _NODATA_RE.search(expr):
-                violations.append(
-                    f'[NODATA_TRIGGER]   Триггер "{trigger.get("name", "?")}" использует nodata(): {expr}'
-                )
+                name = trigger.get('name', '?')
+                violations.append(Violation(
+                    code='NODATA_TRIGGER',
+                    severity=_sev,
+                    message=f'Триггер использует nodata(): {expr}',
+                    context=name,
+                ))
         for trigger in proto_triggers:
             expr = trigger.get('expression', '') or ''
             if _NODATA_RE.search(expr):
-                violations.append(
-                    f'[NODATA_TRIGGER]   Прототип триггера "{trigger.get("name", "?")}" использует nodata(): {expr}'
-                )
+                name = trigger.get('name', '?')
+                violations.append(Violation(
+                    code='NODATA_TRIGGER',
+                    severity=_sev,
+                    message=f'Прототип триггера использует nodata(): {expr}',
+                    context=name,
+                ))
 
     # Частый дискаверинг
     discovery_cfg = config.get('discovery_interval') or {}
     if discovery_cfg.get('enabled', False):
         min_seconds = int(discovery_cfg.get('min_interval_seconds', 600))
+        _sev = discovery_cfg['severity']
         for rule in template.get('discovery_rules', []) or []:
             rule_name = rule.get('name', '?')
             rule_key = rule.get('key', '?')
@@ -197,23 +239,22 @@ def analyze_template(template: dict, config: dict) -> list:
 
             seconds, err = parse_interval(resolved_delay)
             if err:
-                violations.append(
-                    f'[INVALID_INTERVAL] Некорректный формат интервала: "{resolved_delay}"'
-                    f' в discovery_rule "{rule_name}" (допустимы суффиксы: s, m, h, d, w)'
-                )
+                violations.append(Violation(
+                    code='INVALID_INTERVAL',
+                    severity=_sev,
+                    message=f'Некорректный формат интервала: "{resolved_delay}" (допустимы суффиксы: s, m, h, d, w)',
+                    context=f'discovery_rule/{rule_name}',
+                ))
                 continue
 
             if seconds < min_seconds:
-                if is_macro_ref:
-                    violations.append(
-                        f'[FAST_DISCOVERY]   {rule_name} ({rule_key}):'
-                        f' delay={raw_delay} → {resolved_delay} ({seconds}s) — меньше минимума {min_seconds}s'
-                    )
-                else:
-                    violations.append(
-                        f'[FAST_DISCOVERY]   {rule_name} ({rule_key}):'
-                        f' delay={raw_delay} ({seconds}s) — меньше минимума {min_seconds}s'
-                    )
+                detail = f'delay={raw_delay} → {resolved_delay} ({seconds}s)' if is_macro_ref else f'delay={raw_delay} ({seconds}s)'
+                violations.append(Violation(
+                    code='FAST_DISCOVERY',
+                    severity=_sev,
+                    message=f'{rule_name} ({rule_key}): {detail} — меньше минимума {min_seconds}s',
+                    context=f'discovery_rule/{rule_name}',
+                ))
 
     return violations
 
@@ -248,8 +289,9 @@ def main():
             if violations:
                 any_violations = True
                 print('  Найденные отклонения:')
-                for v in violations:
-                    print(f'    {v}')
+                _severity_order = {'critical': 0, 'warning': 1, 'info': 2}
+                for v in sorted(violations, key=lambda v: _severity_order.get(v.severity, 99)):
+                    print(f'    [{v.code}] [{v.severity}] {v.message}  (context: {v.context})')
             else:
                 print('  Отклонений не найдено ✓')
             print()

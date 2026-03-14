@@ -22,7 +22,7 @@ python zablint.py
 **Поток данных:**
 1. `load_config()` читает `config.yaml` — управляет включением/отключением каждой проверки
 2. `load_templates()` загружает все `*.yaml` из `templates/`
-3. Для каждого шаблона вызывается `analyze_template(template, config)` — возвращает список строк-нарушений
+3. Для каждого шаблона вызывается `analyze_template(template, config)` — возвращает `list[Violation]`
 4. Результаты выводятся в stdout
 
 **Проверки в `analyze_template()`** (выполняются последовательно):
@@ -42,4 +42,4 @@ python zablint.py
 
 1. Добавить параметр в `config.yaml` с полем `enabled: true/false`
 2. Прочитать конфиг в `analyze_template()`: `cfg = config.get('key') or {}`
-3. Добавить логику и `violations.append(f'[КОД_НАРУШЕНИЯ] ...')`
+3. Добавить логику и `violations.append(Violation(code='КОД', severity='warning/critical/info', message='...', context='...'))`

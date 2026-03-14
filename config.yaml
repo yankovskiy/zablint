@@ -2,15 +2,19 @@
 discovery_interval:
   enabled: true
   min_interval_seconds: 1800  # минимально допустимый интервал в секундах (например, 600 = 10m)
+  severity: warning
 
 # Проверка макросов объявленных в шаблоне, но нигде не используемых
 unused_macros:
   enabled: true
+  severity: info
 
 # Проверка макросов используемых в шаблоне, но не объявленных (битые макросы)
 undefined_macros:
   enabled: true
+  severity: critical
 
 # Проверка триггеров, использующих функцию nodata()
 nodata_triggers:
   enabled: true
+  severity: warning
