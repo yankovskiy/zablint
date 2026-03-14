@@ -3,6 +3,7 @@
 """zablint — статический анализатор Zabbix-шаблонов."""
 
 import argparse
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -277,6 +278,7 @@ def parse_args() -> argparse.Namespace:
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--dir', default='templates', help='Директория с шаблонами (по умолчанию: templates)')
     group.add_argument('--file', help='Путь к конкретному файлу шаблона')
+    parser.add_argument('--format', choices=['text', 'json'], default='text', help='Формат вывода (по умолчанию: text)')
     return parser.parse_args()
 
 
@@ -305,30 +307,49 @@ def main():
         sys.exit(2)
 
     any_violations = False
+    _severity_order = {'critical': 0, 'warning': 1, 'info': 2}
 
-    for filename, data in template_files:
-        if not isinstance(data, dict):
-            continue
-        export = data.get('zabbix_export', {}) or {}
-        templates = export.get('templates', []) or []
+    if args.format == 'json':
+        results = []
+        for filename, data in template_files:
+            if not isinstance(data, dict):
+                continue
+            export = data.get('zabbix_export', {}) or {}
+            for template in export.get('templates', []) or []:
+                tpl_name = template.get('name') or template.get('template', filename)
+                violations = analyze_template(template, config)
+                if violations:
+                    any_violations = True
+                results.append({
+                    'template': tpl_name,
+                    'file': filename,
+                    'violations': [
+                        {'code': v.code, 'severity': v.severity, 'message': v.message, 'context': v.context}
+                        for v in sorted(violations, key=lambda v: _severity_order.get(v.severity, 99))
+                    ],
+                })
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+    else:
+        for filename, data in template_files:
+            if not isinstance(data, dict):
+                continue
+            export = data.get('zabbix_export', {}) or {}
+            for template in export.get('templates', []) or []:
+                tpl_name = template.get('name') or template.get('template', filename)
+                violations = analyze_template(template, config)
 
-        for template in templates:
-            tpl_name = template.get('name') or template.get('template', filename)
-            violations = analyze_template(template, config)
+                print(f'Шаблон: {tpl_name}')
+                if violations:
+                    any_violations = True
+                    print('  Найденные отклонения:')
+                    for v in sorted(violations, key=lambda v: _severity_order.get(v.severity, 99)):
+                        print(f'    [{v.code}] [{v.severity}] {v.message}  (context: {v.context})')
+                else:
+                    print('  Отклонений не найдено ✓')
+                print()
 
-            print(f'Шаблон: {tpl_name}')
-            if violations:
-                any_violations = True
-                print('  Найденные отклонения:')
-                _severity_order = {'critical': 0, 'warning': 1, 'info': 2}
-                for v in sorted(violations, key=lambda v: _severity_order.get(v.severity, 99)):
-                    print(f'    [{v.code}] [{v.severity}] {v.message}  (context: {v.context})')
-            else:
-                print('  Отклонений не найдено ✓')
-            print()
-
-    if not any_violations:
-        print('Все шаблоны прошли проверку ✓')
+        if not any_violations:
+            print('Все шаблоны прошли проверку ✓')
 
     sys.exit(1 if any_violations else 0)
 
